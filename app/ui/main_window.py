@@ -27,6 +27,7 @@ from app.data.models.device_type import DeviceType
 from app.data.models.platform_type import PlatformType
 from app.data.sources.factory import SourceFactory
 
+from app.ui.devices_page import DevicesPage
 from app.ui.dashboard_page import DashboardPage
 from app.ui.services_page import ServicesPage
 from app.ui.network_connections_page import (
@@ -46,6 +47,7 @@ class MainWindow(QMainWindow):
     NETWORK_CONNECTIONS_PAGE = 6
     PROCESS_PAGE = 7
     SERVICES_PAGE = 8
+    DEVICES_PAGE = 9
 
     def __init__(self):
         super().__init__()
@@ -156,8 +158,8 @@ class MainWindow(QMainWindow):
             }
             QListWidget#sysviewNavigation::item {
                 color: #AEBED3;
-                min-height: 38px;
-                padding: 4px 12px;
+                min-height: 30px;
+                padding: 3px 12px;
                 border-radius: 8px;
                 margin-bottom: 2px;
             }
@@ -340,6 +342,7 @@ class MainWindow(QMainWindow):
                 "Conexões",
                 "Processos",
                 "Serviços",
+                "Dispositivos",
             ]
         )
 
@@ -352,8 +355,8 @@ class MainWindow(QMainWindow):
         sidebar.setObjectName("sysviewSidebar")
         sidebar.setFixedWidth(242)
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(12, 20, 12, 14)
-        sidebar_layout.setSpacing(12)
+        sidebar_layout.setContentsMargins(12, 12, 12, 10)
+        sidebar_layout.setSpacing(7)
 
         brand = QLabel("◈  SYSVIEW")
         brand.setObjectName("sysviewBrand")
@@ -365,7 +368,7 @@ class MainWindow(QMainWindow):
 
         navigation_label = QLabel("NAVEGAÇÃO")
         navigation_label.setObjectName("sysviewNavigationTitle")
-        sidebar_layout.addSpacing(18)
+        sidebar_layout.addSpacing(5)
         sidebar_layout.addWidget(navigation_label)
         sidebar_layout.addWidget(self.menu, 1)
 
@@ -380,6 +383,10 @@ class MainWindow(QMainWindow):
         self.device_status_label.setObjectName("sysviewDeviceStatus")
         device_layout.addWidget(device_label)
         device_layout.addWidget(self.device_status_label)
+        self.selected_target_label = QLabel("Alvo: Computador local")
+        self.selected_target_label.setWordWrap(True)
+        self.selected_target_label.setStyleSheet("color: #94A3B8; font-size: 10px;")
+        device_layout.addWidget(self.selected_target_label)
         sidebar_layout.addWidget(device_card)
 
         footer = QLabel("SysView  •  Monitoramento")
@@ -470,9 +477,20 @@ class MainWindow(QMainWindow):
             self.services_page
         )
 
+        self.devices_page = DevicesPage()
+        self.devices_page.target_changed.connect(self.on_target_changed)
+        self.pages.addWidget(self.devices_page)
+
         self.menu.setCurrentRow(
             self.DASHBOARD_PAGE
         )
+
+    def on_target_changed(self, device):
+        """Seleção de alvo para futura conexão; não troca a fonte ativa."""
+        if device is None:
+            self.selected_target_label.setText("Alvo: Computador local")
+        else:
+            self.selected_target_label.setText(f"Alvo: {device.name} (não conectado)")
 
     # =========================================================
     # TIMER
@@ -506,6 +524,10 @@ class MainWindow(QMainWindow):
             item = self.menu.item(index)
             if item is not None:
                 self.header_page_label.setText(item.text())
+
+        if index == self.DEVICES_PAGE:
+            self.devices_page.refresh()
+            return
 
         QTimer.singleShot(
             0,
@@ -544,6 +566,9 @@ class MainWindow(QMainWindow):
 
             elif index == self.SERVICES_PAGE:
                 self.update_services_page()
+
+            elif index == self.DEVICES_PAGE:
+                return
 
         except Exception as error:
 
