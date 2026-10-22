@@ -2,7 +2,13 @@
 import json
 import logging
 import socket
+import time
 
+from app.agent.auth import (
+    create_nonce,
+    get_agent_secret,
+    sign_request,
+)
 from app.agent.protocol import (
     create_request,
     decode_message,
@@ -15,16 +21,23 @@ logger = logging.getLogger(__name__)
 
 class RemoteTransport:
     """
-    Comunicação TCP com o SysView Agent.
+    Comunicação TCP autenticada com o SysView Agent.
 
     Responsabilidades:
-    - Abrir conexão com o agente.
+    - Abrir conexão com o Agent.
+    - Criar e assinar requisições com HMAC-SHA256.
     - Enviar requisições.
     - Receber respostas.
     - Validar o identificador da requisição.
     - Tratar erros de comunicação.
 
     Não executa regras de negócio.
+
+    Segurança:
+    - A chave secreta nunca é enviada ao Agent.
+    - Cada requisição possui timestamp e nonce únicos.
+    - O servidor verifica a assinatura e rejeita repetições.
+    - O transporte ainda não utiliza TLS.
     """
 
     DEFAULT_PORT = 8765
@@ -62,10 +75,12 @@ class RemoteTransport:
         client: socket.socket,
     ) -> bytes:
         """
-        Recebe uma mensagem JSON.
+        Recebe uma resposta JSON.
 
         Mantém compatibilidade com respostas
         terminadas por quebra de linha ou EOF.
+
+        Limita o tamanho máximo da resposta.
         """
 
         data = bytearray()
@@ -111,7 +126,12 @@ class RemoteTransport:
         payload: dict | None = None,
     ) -> dict:
         """
-        Envia uma requisição ao Agent.
+        Envia uma requisição autenticada ao Agent.
+
+        A requisição recebe:
+        - timestamp: horário de criação;
+        - nonce: identificador aleatório único;
+        - signature: assinatura HMAC-SHA256.
 
         Retorna a resposta validada ou lança
         uma exceção em caso de falha.
@@ -135,10 +155,22 @@ class RemoteTransport:
                 "O payload deve ser um dicionário."
             )
 
+        # Cria a requisição no formato padrão do protocolo.
         request = create_request(
             action=action,
             request_id=request_id,
             payload=payload,
+        )
+
+        # Adiciona os campos de autenticação.
+        request["timestamp"] = int(time.time())
+        request["nonce"] = create_nonce()
+
+        # Assina a requisição usando a chave compartilhada.
+        # A chave nunca é enviada pela rede.
+        request["signature"] = sign_request(
+            request,
+            get_agent_secret(),
         )
 
         logger.debug(
@@ -154,6 +186,7 @@ class RemoteTransport:
                 timeout=self.timeout,
             ) as client:
 
+                
 
                 client.sendall(
                     encode_message(request)

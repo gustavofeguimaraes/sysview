@@ -11,7 +11,7 @@ AUTH_WINDOW_SECONDS = 30
 
 
 def get_agent_secret() -> str:
-    """Obtém a chave de autenticação configurada no ambiente."""
+    """Obtém a chave compartilhada entre cliente e Agent."""
     secret = os.getenv("SYSVIEW_AGENT_SECRET", "")
 
     if len(secret) < 32:
@@ -24,12 +24,12 @@ def get_agent_secret() -> str:
 
 
 def create_nonce() -> str:
-    """Cria um identificador aleatório para cada requisição."""
+    """Gera um identificador aleatório para cada requisição."""
     return secrets.token_hex(16)
 
 
 def _canonical_message(request: dict) -> bytes:
-    """Produz uma representação estável para assinatura."""
+    """Define os campos protegidos pela assinatura."""
     fields = {
         "version": request.get("version"),
         "type": request.get("type"),
@@ -49,7 +49,7 @@ def _canonical_message(request: dict) -> bytes:
 
 
 def sign_request(request: dict, secret: str) -> str:
-    """Assina a requisição sem transmitir a chave secreta."""
+    """Calcula a assinatura HMAC-SHA256."""
     return hmac.new(
         secret.encode("utf-8"),
         _canonical_message(request),
@@ -62,7 +62,7 @@ def authenticate_request(
     secret: str,
     used_nonces: set[str],
 ) -> bool:
-    """Verifica assinatura, validade temporal e repetição."""
+    """Valida a assinatura, o prazo e o identificador único."""
     timestamp = request.get("timestamp")
     nonce = request.get("nonce")
     signature = request.get("signature")
@@ -72,7 +72,14 @@ def authenticate_request(
         or not isinstance(nonce, str)
         or len(nonce) != 32
         or not isinstance(signature, str)
+        or len(signature) != 64
     ):
+        return False
+
+    try:
+        int(nonce, 16)
+        int(signature, 16)
+    except ValueError:
         return False
 
     if abs(time.time() - timestamp) > AUTH_WINDOW_SECONDS:
