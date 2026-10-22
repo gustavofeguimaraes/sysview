@@ -44,7 +44,6 @@ class NetworkConnectionsPage(QWidget):
 
         self._build_ui()
 
-        self.refresh_connections()
 
     # =========================================================
     # FONTE DE DADOS

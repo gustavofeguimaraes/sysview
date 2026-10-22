@@ -1,6 +1,7 @@
+
 import psutil
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMainWindow,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QStackedWidget,
@@ -19,17 +21,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.services.monitor import (
-    get_network_data,
-    get_network_speed_data,
-    get_process_data,
-    get_service_data,
-    get_system_data,
-    monitor,
-)
+from app.data.models.connection_type import ConnectionType
+from app.data.models.device import Device
+from app.data.models.device_type import DeviceType
+from app.data.models.platform_type import PlatformType
+from app.data.sources.factory import SourceFactory
 
 from app.ui.dashboard_page import DashboardPage
 from app.ui.services_page import ServicesPage
+from app.ui.network_connections_page import (
+    NetworkConnectionsPage,
+)
 
 
 class MainWindow(QMainWindow):
@@ -41,31 +43,76 @@ class MainWindow(QMainWindow):
     MEMORY_PAGE = 3
     DISK_PAGE = 4
     NETWORK_PAGE = 5
-    PROCESS_PAGE = 6
-    SERVICES_PAGE = 7
+    NETWORK_CONNECTIONS_PAGE = 6
+    PROCESS_PAGE = 7
+    SERVICES_PAGE = 8
 
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle(
-            "SysView"
+        self.setWindowTitle("SysView")
+        self.resize(1250, 800)
+
+        # =====================================================
+        # DISPOSITIVO ATUAL
+        # =====================================================
+
+        self.current_device = Device(
+            device_id="local",
+            name="Computador local",
+            device_type=DeviceType.COMPUTER,
+            platform=PlatformType.WINDOWS,
+            connection_type=ConnectionType.LOCAL,
+            online=True,
         )
 
-        self.resize(
-            1250,
-            800,
+        # =====================================================
+        # FONTES DE DADOS E CONTROLE
+        # =====================================================
+
+        self.data_source = (
+            SourceFactory.create_data_source(
+                self.current_device
+            )
         )
+
+        self.control_source = (
+            SourceFactory.create_control_source(
+                self.current_device
+            )
+        )
+
+        # =====================================================
+        # INTERFACE
+        # =====================================================
 
         self.pages = QStackedWidget()
-
         self.menu = QListWidget()
 
+        # =====================================================
+        # PROCESSOS
+        # =====================================================
+
         self.processes_data = []
+        self.selected_process_pid = None
+        self.process_table_signature = None
+        self.process_search_text = ""
+        self.process_sort_column = None
+        self.process_sort_order = (
+            Qt.SortOrder.AscendingOrder
+        )
+
+        # =====================================================
+        # REDE
+        # =====================================================
 
         self.network_history = []
 
-        self.setup_ui()
+        # =====================================================
+        # CONFIGURAÇÃO
+        # =====================================================
 
+        self.setup_ui()
         self.setup_timer()
 
     # =========================================================
@@ -74,10 +121,7 @@ class MainWindow(QMainWindow):
 
     def setup_ui(self):
         central = QWidget()
-
-        self.setCentralWidget(
-            central
-        )
+        self.setCentralWidget(central)
 
         main_layout = QHBoxLayout(
             central
@@ -90,13 +134,13 @@ class MainWindow(QMainWindow):
             0,
         )
 
-        main_layout.setSpacing(
-            0
-        )
+        main_layout.setSpacing(0)
 
-        self.menu.setFixedWidth(
-            210
-        )
+        # -----------------------------------------------------
+        # MENU
+        # -----------------------------------------------------
+
+        self.menu.setFixedWidth(210)
 
         self.menu.addItems(
             [
@@ -106,6 +150,7 @@ class MainWindow(QMainWindow):
                 "Memória",
                 "Disco",
                 "Rede",
+                "Conexões",
                 "Processos",
                 "Serviços",
             ]
@@ -123,17 +168,21 @@ class MainWindow(QMainWindow):
             self.pages
         )
 
-        # =====================================================
-        # PÁGINAS
-        # =====================================================
+        # -----------------------------------------------------
+        # DASHBOARD
+        # -----------------------------------------------------
 
-        self.dashboard_page = (
-            DashboardPage()
+        self.dashboard_page = DashboardPage(
+            data_source=self.data_source
         )
 
         self.pages.addWidget(
             self.dashboard_page
         )
+
+        # -----------------------------------------------------
+        # OUTRAS PÁGINAS
+        # -----------------------------------------------------
 
         self.pages.addWidget(
             self.create_computer_page()
@@ -155,12 +204,21 @@ class MainWindow(QMainWindow):
             self.create_network_page()
         )
 
+        self.network_connections_page = NetworkConnectionsPage(
+            data_source=self.data_source
+        )
+
+        self.pages.addWidget(
+            self.network_connections_page
+        )
+
         self.pages.addWidget(
             self.create_process_page()
         )
 
-        self.services_page = (
-            ServicesPage()
+        self.services_page = ServicesPage(
+            data_source=self.data_source,
+            control_source=self.control_source,
         )
 
         self.pages.addWidget(
@@ -176,20 +234,16 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def setup_timer(self):
-        self.timer = QTimer(
-            self
-        )
+        self.timer = QTimer(self)
 
         self.timer.timeout.connect(
             self.update_current_page
         )
 
-        self.timer.start(
-            1000
-        )
+        self.timer.start(1000)
 
     # =========================================================
-    # TROCA DE PÁGINA
+    # NAVEGAÇÃO
     # =========================================================
 
     def change_page(
@@ -205,47 +259,38 @@ class MainWindow(QMainWindow):
             self.update_current_page,
         )
 
-    # =========================================================
-    # ATUALIZAÇÃO DA PÁGINA
-    # =========================================================
-
     def update_current_page(self):
-        index = (
-            self.pages.currentIndex()
-        )
+        index = self.pages.currentIndex()
 
         try:
 
             if index == self.DASHBOARD_PAGE:
+                self.dashboard_page.update_data()
                 return
 
             if index == self.COMPUTER_PAGE:
                 self.update_computer_page()
-                return
 
-            if index == self.CPU_PAGE:
+            elif index == self.CPU_PAGE:
                 self.update_cpu_page()
-                return
 
-            if index == self.MEMORY_PAGE:
+            elif index == self.MEMORY_PAGE:
                 self.update_memory_page()
-                return
 
-            if index == self.DISK_PAGE:
+            elif index == self.DISK_PAGE:
                 self.update_disk_page()
-                return
 
-            if index == self.NETWORK_PAGE:
+            elif index == self.NETWORK_PAGE:
                 self.update_network_page()
-                return
 
-            if index == self.PROCESS_PAGE:
+            elif index == self.NETWORK_CONNECTIONS_PAGE:
+                self.update_network_connections_page()
+
+            elif index == self.PROCESS_PAGE:
                 self.update_process_page()
-                return
 
-            if index == self.SERVICES_PAGE:
+            elif index == self.SERVICES_PAGE:
                 self.update_services_page()
-                return
 
         except Exception as error:
 
@@ -255,7 +300,7 @@ class MainWindow(QMainWindow):
             )
 
     # =========================================================
-    # TÍTULO
+    # COMPONENTES AUXILIARES
     # =========================================================
 
     def make_title(
@@ -276,13 +321,10 @@ class MainWindow(QMainWindow):
             10,
         )
 
-        title = QLabel(
-            text
-        )
+        title = QLabel(text)
 
         title.setStyleSheet(
-            "font-size: 26px; "
-            "font-weight: bold;"
+            "font-size: 26px; font-weight: bold;"
         )
 
         layout.addWidget(
@@ -290,20 +332,11 @@ class MainWindow(QMainWindow):
         )
 
         if subtitle:
-
-            label = QLabel(
-                subtitle
-            )
-
             layout.addWidget(
-                label
+                QLabel(subtitle)
             )
 
         return widget
-
-    # =========================================================
-    # CARD AUXILIAR
-    # =========================================================
 
     def create_info_card(
         self,
@@ -325,13 +358,10 @@ class MainWindow(QMainWindow):
         )
 
         title_label.setStyleSheet(
-            "font-size: 13px; "
-            "font-weight: bold;"
+            "font-size: 13px; font-weight: bold;"
         )
 
-        value_label = QLabel(
-            "-"
-        )
+        value_label = QLabel("-")
 
         value_label.setWordWrap(
             True
@@ -373,11 +403,98 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.computer_labels = {}
+        # -----------------------------------------------------
+        # AÇÕES
+        # -----------------------------------------------------
 
-        # =====================================================
+        actions_box = QFrame()
+
+        actions_box.setFrameShape(
+            QFrame.Shape.StyledPanel
+        )
+
+        actions_layout = QVBoxLayout(
+            actions_box
+        )
+
+        title = QLabel(
+            "Ações do computador"
+        )
+
+        title.setStyleSheet(
+            "font-size: 18px; font-weight: bold;"
+        )
+
+        actions_layout.addWidget(
+            title
+        )
+
+        buttons = QHBoxLayout()
+
+        self.refresh_computer_button = (
+            QPushButton("Atualizar")
+        )
+
+        self.lock_computer_button = (
+            QPushButton("Bloquear")
+        )
+
+        self.restart_computer_button = (
+            QPushButton("Reiniciar")
+        )
+
+        self.shutdown_computer_button = (
+            QPushButton("Desligar")
+        )
+
+        self.cancel_shutdown_button = (
+            QPushButton("Cancelar desligamento")
+        )
+
+        self.refresh_computer_button.clicked.connect(
+            self.refresh_computer_action
+        )
+
+        self.lock_computer_button.clicked.connect(
+            self.lock_computer_action
+        )
+
+        self.restart_computer_button.clicked.connect(
+            self.restart_computer_action
+        )
+
+        self.shutdown_computer_button.clicked.connect(
+            self.shutdown_computer_action
+        )
+
+        self.cancel_shutdown_button.clicked.connect(
+            self.cancel_shutdown_action
+        )
+
+        for button in (
+            self.refresh_computer_button,
+            self.lock_computer_button,
+            self.restart_computer_button,
+            self.shutdown_computer_button,
+            self.cancel_shutdown_button,
+        ):
+            buttons.addWidget(
+                button
+            )
+
+        actions_layout.addLayout(
+            buttons
+        )
+
+        layout.addWidget(
+            actions_box
+        )
+
+        # -----------------------------------------------------
         # IDENTIFICAÇÃO
-        # =====================================================
+        # -----------------------------------------------------
+
+        self.computer_labels = {}
 
         identification_box = QFrame()
 
@@ -385,72 +502,61 @@ class MainWindow(QMainWindow):
             QFrame.Shape.StyledPanel
         )
 
-        identification_layout = (
-            QGridLayout(
-                identification_box
-            )
+        identification_layout = QGridLayout(
+            identification_box
         )
 
-        identification_title = QLabel(
+        title = QLabel(
             "Identificação"
         )
 
-        identification_title.setStyleSheet(
-            "font-size: 18px; "
-            "font-weight: bold;"
+        title.setStyleSheet(
+            "font-size: 18px; font-weight: bold;"
         )
 
         identification_layout.addWidget(
-            identification_title,
+            title,
             0,
             0,
             1,
             4,
         )
 
-        identification_layout.addWidget(
-            self.create_info_card(
-                "Nome do computador",
-                "hostname",
-            ),
-            1,
-            0,
-        )
-
-        identification_layout.addWidget(
-            self.create_info_card(
-                "Usuário atual",
-                "current_user",
-            ),
-            1,
-            1,
-        )
-
-        identification_layout.addWidget(
-            self.create_info_card(
-                "Sistema operacional",
-                "operating_system",
-            ),
-            1,
-            2,
-        )
-
-        identification_layout.addWidget(
-            self.create_info_card(
-                "Versão",
-                "operating_system_release",
-            ),
-            1,
-            3,
-        )
+        for col, args in enumerate(
+            (
+                (
+                    "Nome do computador",
+                    "hostname",
+                ),
+                (
+                    "Usuário atual",
+                    "current_user",
+                ),
+                (
+                    "Sistema operacional",
+                    "operating_system",
+                ),
+                (
+                    "Versão",
+                    "operating_system_release",
+                ),
+            )
+        ):
+            identification_layout.addWidget(
+                self.create_info_card(
+                    *args
+                ),
+                1,
+                col,
+            )
 
         layout.addWidget(
             identification_box
         )
 
-        # =====================================================
+        # -----------------------------------------------------
         # HARDWARE
-        # =====================================================
+        # -----------------------------------------------------
 
         hardware_box = QFrame()
 
@@ -458,23 +564,20 @@ class MainWindow(QMainWindow):
             QFrame.Shape.StyledPanel
         )
 
-        hardware_layout = (
-            QGridLayout(
-                hardware_box
-            )
+        hardware_layout = QGridLayout(
+            hardware_box
         )
 
-        hardware_title = QLabel(
+        title = QLabel(
             "Hardware"
         )
 
-        hardware_title.setStyleSheet(
-            "font-size: 18px; "
-            "font-weight: bold;"
+        title.setStyleSheet(
+            "font-size: 18px; font-weight: bold;"
         )
 
         hardware_layout.addWidget(
-            hardware_title,
+            title,
             0,
             0,
             1,
@@ -534,9 +637,9 @@ class MainWindow(QMainWindow):
             hardware_box
         )
 
-        # =====================================================
+        # -----------------------------------------------------
         # SISTEMA
-        # =====================================================
+        # -----------------------------------------------------
 
         system_box = QFrame()
 
@@ -544,89 +647,75 @@ class MainWindow(QMainWindow):
             QFrame.Shape.StyledPanel
         )
 
-        system_layout = (
-            QGridLayout(
-                system_box
-            )
+        system_layout = QGridLayout(
+            system_box
         )
 
-        system_title = QLabel(
+        title = QLabel(
             "Sistema"
         )
 
-        system_title.setStyleSheet(
-            "font-size: 18px; "
-            "font-weight: bold;"
+        title.setStyleSheet(
+            "font-size: 18px; font-weight: bold;"
         )
 
         system_layout.addWidget(
-            system_title,
+            title,
             0,
             0,
             1,
             4,
         )
 
-        system_layout.addWidget(
-            self.create_info_card(
-                "Python",
-                "python_version",
-            ),
-            1,
-            0,
-        )
-
-        system_layout.addWidget(
-            self.create_info_card(
-                "Inicialização",
-                "boot_time",
-            ),
-            1,
-            1,
-        )
-
-        system_layout.addWidget(
-            self.create_info_card(
-                "Tempo ligado",
-                "uptime",
-            ),
-            1,
-            2,
-        )
-
-        system_layout.addWidget(
-            self.create_info_card(
-                "Plataforma",
-                "platform",
-            ),
-            1,
-            3,
-        )
+        for col, args in enumerate(
+            (
+                (
+                    "Python",
+                    "python_version",
+                ),
+                (
+                    "Inicialização",
+                    "boot_time",
+                ),
+                (
+                    "Tempo ligado",
+                    "uptime",
+                ),
+                (
+                    "Plataforma",
+                    "platform",
+                ),
+            )
+        ):
+            system_layout.addWidget(
+                self.create_info_card(
+                    *args
+                ),
+                1,
+                col,
+            )
 
         layout.addWidget(
             system_box
         )
 
-        # =====================================================
+        # -----------------------------------------------------
         # ARMAZENAMENTO
-        # =====================================================
+        # -----------------------------------------------------
 
-        storage_title = QLabel(
+        title = QLabel(
             "Armazenamento"
         )
 
-        storage_title.setStyleSheet(
-            "font-size: 18px; "
-            "font-weight: bold;"
+        title.setStyleSheet(
+            "font-size: 18px; font-weight: bold;"
         )
 
         layout.addWidget(
-            storage_title
+            title
         )
 
-        self.storage_table = (
-            QTableWidget()
-        )
+        self.storage_table = QTableWidget()
 
         self.storage_table.setColumnCount(
             6
@@ -655,21 +744,20 @@ class MainWindow(QMainWindow):
             self.storage_table
         )
 
-        # =====================================================
-        # REDE
-        # =====================================================
+        # -----------------------------------------------------
+        # ADAPTADORES DE REDE
+        # -----------------------------------------------------
 
-        network_title = QLabel(
+        title = QLabel(
             "Adaptadores de rede"
         )
 
-        network_title.setStyleSheet(
-            "font-size: 18px; "
-            "font-weight: bold;"
+        title.setStyleSheet(
+            "font-size: 18px; font-weight: bold;"
         )
 
         layout.addWidget(
-            network_title
+            title
         )
 
         self.computer_network_table = (
@@ -707,87 +795,31 @@ class MainWindow(QMainWindow):
 
         return page
 
-    # =========================================================
-    # ATUALIZAR COMPUTADOR
-    # =========================================================
-
     def update_computer_page(self):
+        data = self.data_source.get_system()
 
-        data = get_system_data()
-
-        # -----------------------------------------------------
-        # IDENTIFICAÇÃO
-        # -----------------------------------------------------
-
-        self.computer_labels[
-            "hostname"
-        ].setText(
-            str(
-                data.get(
-                    "hostname",
-                    "-",
+        for key in (
+            "hostname",
+            "current_user",
+            "operating_system",
+            "operating_system_release",
+            "processor",
+            "architecture",
+            "python_version",
+            "boot_time",
+            "uptime",
+            "platform",
+        ):
+            self.computer_labels[
+                key
+            ].setText(
+                str(
+                    data.get(
+                        key,
+                        "-",
+                    )
                 )
             )
-        )
-
-        self.computer_labels[
-            "current_user"
-        ].setText(
-            str(
-                data.get(
-                    "current_user",
-                    "-",
-                )
-            )
-        )
-
-        self.computer_labels[
-            "operating_system"
-        ].setText(
-            str(
-                data.get(
-                    "operating_system",
-                    "-",
-                )
-            )
-        )
-
-        self.computer_labels[
-            "operating_system_release"
-        ].setText(
-            str(
-                data.get(
-                    "operating_system_release",
-                    "-",
-                )
-            )
-        )
-
-        # -----------------------------------------------------
-        # HARDWARE
-        # -----------------------------------------------------
-
-        self.computer_labels[
-            "processor"
-        ].setText(
-            str(
-                data.get(
-                    "processor",
-                    "Desconhecido",
-                )
-            )
-        )
-
-        self.computer_labels[
-            "architecture"
-        ].setText(
-            str(
-                data.get(
-                    "architecture",
-                    "-",
-                )
-            )
-        )
 
         physical = data.get(
             "physical_cores",
@@ -803,18 +835,16 @@ class MainWindow(QMainWindow):
             "frequency_mhz"
         )
 
-        frequency_text = (
-            f"{frequency:.0f} MHz"
-            if frequency is not None
-            else "N/D"
-        )
-
         self.computer_labels[
             "cores"
         ].setText(
             f"{physical} físicos / "
             f"{logical} lógicos\n"
-            f"{frequency_text}"
+            + (
+                f"{frequency:.0f} MHz"
+                if frequency is not None
+                else "N/D"
+            )
         )
 
         self.computer_labels[
@@ -823,107 +853,41 @@ class MainWindow(QMainWindow):
             f'{data.get("memory_total_gb", 0):.2f} GB'
         )
 
-        # -----------------------------------------------------
-        # GPU
-        # -----------------------------------------------------
-
         gpus = data.get(
             "gpus",
             [],
         )
 
-        if gpus:
+        gpu_lines = []
 
-            gpu_lines = []
-
-            for gpu in gpus:
-
-                name = gpu.get(
-                    "name",
-                    "Desconhecida",
-                )
-
-                memory = gpu.get(
-                    "memory_gb"
-                )
-
-                if memory is not None:
-                    gpu_lines.append(
-                        f"{name} "
-                        f"({memory:.2f} GB)"
-                    )
-                else:
-                    gpu_lines.append(
-                        name
-                    )
-
-            gpu_text = "\n".join(
-                gpu_lines
+        for gpu in gpus:
+            name = gpu.get(
+                "name",
+                "Desconhecida",
             )
 
-        else:
-
-            gpu_text = (
-                "GPU não identificada"
+            memory = gpu.get(
+                "memory_gb"
             )
+
+            if memory is not None:
+                gpu_lines.append(
+                    f"{name} ({memory:.2f} GB)"
+                )
+            else:
+                gpu_lines.append(
+                    name
+                )
 
         self.computer_labels[
             "gpu_summary"
         ].setText(
-            gpu_text
-        )
-
-        # -----------------------------------------------------
-        # SISTEMA
-        # -----------------------------------------------------
-
-        self.computer_labels[
-            "python_version"
-        ].setText(
-            str(
-                data.get(
-                    "python_version",
-                    "-",
-                )
+            "\n".join(
+                gpu_lines
             )
+            if gpu_lines
+            else "GPU não identificada"
         )
-
-        self.computer_labels[
-            "boot_time"
-        ].setText(
-            str(
-                data.get(
-                    "boot_time",
-                    "-",
-                )
-            )
-        )
-
-        self.computer_labels[
-            "uptime"
-        ].setText(
-            str(
-                data.get(
-                    "uptime",
-                    "-",
-                )
-            )
-        )
-
-        self.computer_labels[
-            "platform"
-        ].setText(
-            str(
-                data.get(
-                    "platform",
-                    "-",
-                )
-            )
-        )
-
-        # -----------------------------------------------------
-        # ARMAZENAMENTO
-        # -----------------------------------------------------
 
         partitions = data.get(
             "partitions",
@@ -937,7 +901,6 @@ class MainWindow(QMainWindow):
         for row, partition in enumerate(
             partitions
         ):
-
             values = [
                 partition.get(
                     "device",
@@ -951,21 +914,14 @@ class MainWindow(QMainWindow):
                     "filesystem",
                     "-",
                 ),
-                (
-                    f'{partition.get("total_gb", 0):.2f} GB'
-                ),
-                (
-                    f'{partition.get("free_gb", 0):.2f} GB'
-                ),
-                (
-                    f'{partition.get("usage_percent", 0):.1f}%'
-                ),
+                f'{partition.get("total_gb", 0):.2f} GB',
+                f'{partition.get("free_gb", 0):.2f} GB',
+                f'{partition.get("usage_percent", 0):.1f}%',
             ]
 
             for column, value in enumerate(
                 values
             ):
-
                 self.storage_table.setItem(
                     row,
                     column,
@@ -975,10 +931,6 @@ class MainWindow(QMainWindow):
                 )
 
         self.storage_table.resizeColumnsToContents()
-
-        # -----------------------------------------------------
-        # ADAPTADORES DE REDE
-        # -----------------------------------------------------
 
         adapters = data.get(
             "network_adapters",
@@ -992,38 +944,23 @@ class MainWindow(QMainWindow):
         for row, adapter in enumerate(
             adapters
         ):
+            ipv4 = ", ".join(
+                adapter.get(
+                    "ipv4",
+                    [],
+                )
+            ) or "-"
 
-            ipv4 = adapter.get(
-                "ipv4",
-                [],
-            )
-
-            ipv6 = adapter.get(
-                "ipv6",
-                [],
-            )
-
-            ipv4_text = (
-                ", ".join(ipv4)
-                if ipv4
-                else "-"
-            )
-
-            ipv6_text = (
-                ", ".join(ipv6)
-                if ipv6
-                else "-"
-            )
+            ipv6 = ", ".join(
+                adapter.get(
+                    "ipv6",
+                    [],
+                )
+            ) or "-"
 
             speed = adapter.get(
                 "speed_mbps",
                 0,
-            )
-
-            speed_text = (
-                f"{speed} Mbps"
-                if speed
-                else "-"
             )
 
             values = [
@@ -1038,9 +975,13 @@ class MainWindow(QMainWindow):
                     )
                     else "Inativa"
                 ),
-                speed_text,
-                ipv4_text,
-                ipv6_text,
+                (
+                    f"{speed} Mbps"
+                    if speed
+                    else "-"
+                ),
+                ipv4,
+                ipv6,
                 adapter.get(
                     "mac"
                 ) or "-",
@@ -1049,7 +990,6 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(
                 values
             ):
-
                 self.computer_network_table.setItem(
                     row,
                     column,
@@ -1061,11 +1001,146 @@ class MainWindow(QMainWindow):
         self.computer_network_table.resizeColumnsToContents()
 
     # =========================================================
+    # AÇÕES DO COMPUTADOR
+    # =========================================================
+
+    def refresh_computer_action(self):
+        try:
+            self.update_computer_page()
+
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                "Não foi possível atualizar "
+                "as informações do computador.\n\n"
+                f"{error}",
+            )
+
+    def lock_computer_action(self):
+        if QMessageBox.question(
+            self,
+            "Bloquear computador",
+            "Deseja realmente bloquear "
+            "esta estação de trabalho?\n\n"
+            "O Windows será bloqueado imediatamente.",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self.control_source.lock_computer()
+
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                "Não foi possível bloquear "
+                "o computador.\n\n"
+                f"{error}",
+            )
+
+    def restart_computer_action(self):
+        if QMessageBox.question(
+            self,
+            "Reiniciar computador",
+            "ATENÇÃO!\n\n"
+            "O computador será reiniciado em 30 segundos.\n\n"
+            "Salve seu trabalho antes de continuar.\n\n"
+            "Deseja realmente reiniciar?",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self.control_source.restart_computer(
+                delay_seconds=30
+            )
+
+            QMessageBox.information(
+                self,
+                "Reinício agendado",
+                "O reinício foi agendado "
+                "para daqui a 30 segundos.\n\n"
+                "Se precisar cancelar, use "
+                "'Cancelar desligamento'.",
+            )
+
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                "Não foi possível agendar "
+                "o reinício.\n\n"
+                f"{error}",
+            )
+
+    def shutdown_computer_action(self):
+        if QMessageBox.question(
+            self,
+            "Desligar computador",
+            "ATENÇÃO!\n\n"
+            "O computador será desligado em 30 segundos.\n\n"
+            "Salve seu trabalho antes de continuar.\n\n"
+            "Deseja realmente desligar?",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self.control_source.shutdown_computer(
+                delay_seconds=30
+            )
+
+            QMessageBox.information(
+                self,
+                "Desligamento agendado",
+                "O desligamento foi agendado "
+                "para daqui a 30 segundos.\n\n"
+                "Se precisar cancelar, use "
+                "'Cancelar desligamento'.",
+            )
+
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                "Não foi possível agendar "
+                "o desligamento.\n\n"
+                f"{error}",
+            )
+
+    def cancel_shutdown_action(self):
+        try:
+            self.control_source.cancel_shutdown()
+
+            QMessageBox.information(
+                self,
+                "SysView",
+                "Desligamento ou reinício "
+                "programado cancelado.",
+            )
+
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "Nenhuma ação programada",
+                "Não foi possível cancelar "
+                "uma ação programada.\n\n"
+                f"{error}",
+            )
+
+    # =========================================================
     # CPU
     # =========================================================
 
     def create_cpu_page(self):
-
         page = QWidget()
 
         layout = QVBoxLayout(
@@ -1084,13 +1159,10 @@ class MainWindow(QMainWindow):
         )
 
         self.cpu_usage_label.setStyleSheet(
-            "font-size: 36px; "
-            "font-weight: bold;"
+            "font-size: 36px; font-weight: bold;"
         )
 
-        self.cpu_progress = (
-            QProgressBar()
-        )
+        self.cpu_progress = QProgressBar()
 
         self.cpu_progress.setRange(
             0,
@@ -1118,26 +1190,15 @@ class MainWindow(QMainWindow):
         return page
 
     def update_cpu_page(self):
+        dashboard = self.data_source.get_dashboard()
 
-        data = monitor.get_dashboard()
-
-        cpu = data[
+        cpu = dashboard[
             "cpu"
         ]
 
         usage = cpu.get(
             "usage_percent",
             0,
-        )
-
-        physical = cpu.get(
-            "physical_cores",
-            "-",
-        )
-
-        logical = cpu.get(
-            "logical_cores",
-            "-",
         )
 
         frequency = cpu.get(
@@ -1165,9 +1226,14 @@ class MainWindow(QMainWindow):
         )
 
         self.cpu_info_label.setText(
-            f"Núcleos físicos: {physical} • "
-            f"Núcleos lógicos: {logical} • "
-            f"Frequência atual: {frequency_text}"
+            f"Núcleos físicos: "
+            f"{cpu.get('physical_cores', '-')}"
+            " • "
+            f"Núcleos lógicos: "
+            f"{cpu.get('logical_cores', '-')}"
+            " • "
+            f"Frequência atual: "
+            f"{frequency_text}"
         )
 
     # =========================================================
@@ -1175,7 +1241,6 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def create_memory_page(self):
-
         page = QWidget()
 
         layout = QVBoxLayout(
@@ -1194,13 +1259,10 @@ class MainWindow(QMainWindow):
         )
 
         self.memory_usage_label.setStyleSheet(
-            "font-size: 36px; "
-            "font-weight: bold;"
+            "font-size: 36px; font-weight: bold;"
         )
 
-        self.memory_progress = (
-            QProgressBar()
-        )
+        self.memory_progress = QProgressBar()
 
         self.memory_progress.setRange(
             0,
@@ -1228,30 +1290,14 @@ class MainWindow(QMainWindow):
         return page
 
     def update_memory_page(self):
+        dashboard = self.data_source.get_dashboard()
 
-        data = monitor.get_dashboard()
-
-        memory = data[
+        memory = dashboard[
             "memory"
         ]
 
         usage = memory.get(
             "usage_percent",
-            0,
-        )
-
-        used = memory.get(
-            "used_gb",
-            0,
-        )
-
-        total = memory.get(
-            "total_gb",
-            0,
-        )
-
-        available = memory.get(
-            "available_gb",
             0,
         )
 
@@ -1270,9 +1316,14 @@ class MainWindow(QMainWindow):
         )
 
         self.memory_info_label.setText(
-            f"Usado: {used:.2f} GB • "
-            f"Disponível: {available:.2f} GB • "
-            f"Total: {total:.2f} GB"
+            f"Usado: "
+            f"{memory.get('used_gb', 0):.2f} GB"
+            " • "
+            f"Disponível: "
+            f"{memory.get('available_gb', 0):.2f} GB"
+            " • "
+            f"Total: "
+            f"{memory.get('total_gb', 0):.2f} GB"
         )
 
     # =========================================================
@@ -1280,7 +1331,6 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def create_disk_page(self):
-
         page = QWidget()
 
         layout = QVBoxLayout(
@@ -1299,13 +1349,10 @@ class MainWindow(QMainWindow):
         )
 
         self.disk_usage_label.setStyleSheet(
-            "font-size: 36px; "
-            "font-weight: bold;"
+            "font-size: 36px; font-weight: bold;"
         )
 
-        self.disk_progress = (
-            QProgressBar()
-        )
+        self.disk_progress = QProgressBar()
 
         self.disk_progress.setRange(
             0,
@@ -1333,30 +1380,14 @@ class MainWindow(QMainWindow):
         return page
 
     def update_disk_page(self):
+        dashboard = self.data_source.get_dashboard()
 
-        data = monitor.get_dashboard()
-
-        disk = data[
+        disk = dashboard[
             "disk"
         ]
 
         usage = disk.get(
             "usage_percent",
-            0,
-        )
-
-        used = disk.get(
-            "used_gb",
-            0,
-        )
-
-        total = disk.get(
-            "total_gb",
-            0,
-        )
-
-        free = disk.get(
-            "free_gb",
             0,
         )
 
@@ -1375,9 +1406,14 @@ class MainWindow(QMainWindow):
         )
 
         self.disk_info_label.setText(
-            f"Usado: {used:.2f} GB • "
-            f"Livre: {free:.2f} GB • "
-            f"Total: {total:.2f} GB"
+            f"Usado: "
+            f"{disk.get('used_gb', 0):.2f} GB"
+            " • "
+            f"Livre: "
+            f"{disk.get('free_gb', 0):.2f} GB"
+            " • "
+            f"Total: "
+            f"{disk.get('total_gb', 0):.2f} GB"
         )
 
     # =========================================================
@@ -1385,7 +1421,6 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def create_network_page(self):
-
         page = QWidget()
 
         layout = QVBoxLayout(
@@ -1399,9 +1434,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.network_table = (
-            QTableWidget()
-        )
+        self.network_table = QTableWidget()
 
         self.network_table.setColumnCount(
             6
@@ -1430,6 +1463,10 @@ class MainWindow(QMainWindow):
             self.network_table
         )
 
+        # -----------------------------------------------------
+        # VELOCIDADE
+        # -----------------------------------------------------
+
         speed_layout = QGridLayout()
 
         upload_box = QFrame()
@@ -1442,13 +1479,8 @@ class MainWindow(QMainWindow):
             upload_box
         )
 
-        upload_title = QLabel(
-            "UPLOAD"
-        )
-
-        upload_title.setStyleSheet(
-            "font-size: 13px; "
-            "font-weight: bold;"
+        upload_layout.addWidget(
+            QLabel("UPLOAD")
         )
 
         self.network_upload_label = QLabel(
@@ -1456,12 +1488,7 @@ class MainWindow(QMainWindow):
         )
 
         self.network_upload_label.setStyleSheet(
-            "font-size: 22px; "
-            "font-weight: bold;"
-        )
-
-        upload_layout.addWidget(
-            upload_title
+            "font-size: 22px; font-weight: bold;"
         )
 
         upload_layout.addWidget(
@@ -1478,13 +1505,8 @@ class MainWindow(QMainWindow):
             download_box
         )
 
-        download_title = QLabel(
-            "DOWNLOAD"
-        )
-
-        download_title.setStyleSheet(
-            "font-size: 13px; "
-            "font-weight: bold;"
+        download_layout.addWidget(
+            QLabel("DOWNLOAD")
         )
 
         self.network_download_label = QLabel(
@@ -1492,12 +1514,7 @@ class MainWindow(QMainWindow):
         )
 
         self.network_download_label.setStyleSheet(
-            "font-size: 22px; "
-            "font-weight: bold;"
-        )
-
-        download_layout.addWidget(
-            download_title
+            "font-size: 22px; font-weight: bold;"
         )
 
         download_layout.addWidget(
@@ -1528,21 +1545,20 @@ class MainWindow(QMainWindow):
             self.network_status
         )
 
+        # -----------------------------------------------------
+        # GRÁFICO
+        # -----------------------------------------------------
+
         self.network_plot = None
-
         self.network_curve_upload = None
-
         self.network_curve_download = None
-
         self.network_history = []
 
         try:
 
             import pyqtgraph as pg
 
-            self.network_plot = (
-                pg.PlotWidget()
-            )
+            self.network_plot = pg.PlotWidget()
 
             self.network_plot.setBackground(
                 None
@@ -1600,8 +1616,12 @@ class MainWindow(QMainWindow):
         return page
 
     def update_network_page(self):
+        network = self.data_source.get_network()
 
-        data = get_network_data()
+        data = network.get(
+            "interfaces",
+            [],
+        )
 
         self.network_table.setRowCount(
             len(data)
@@ -1623,25 +1643,24 @@ class MainWindow(QMainWindow):
                     )
                     else "Não"
                 ),
-                (
-                    f"{interface.get('speed_mbps', 0)} "
-                    "Mbps"
-                ),
+                f"{interface.get('speed_mbps', 0)} Mbps",
                 interface.get(
                     "ipv4"
-                ) or "-",
+                )
+                or "-",
                 interface.get(
                     "ipv6"
-                ) or "-",
+                )
+                or "-",
                 interface.get(
                     "mac"
-                ) or "-",
+                )
+                or "-",
             ]
 
             for column, value in enumerate(
                 values
             ):
-
                 self.network_table.setItem(
                     row,
                     column,
@@ -1650,13 +1669,26 @@ class MainWindow(QMainWindow):
                     ),
                 )
 
-        self.update_network_speed()
+        self.network_table.resizeColumnsToContents()
 
-    def update_network_speed(self):
-
-        speed = (
-            get_network_speed_data()
+        self.update_network_speed(
+            network.get(
+                "speed",
+                {},
+            )
         )
+
+    def update_network_speed(
+        self,
+        speed=None,
+    ):
+        if speed is None:
+            network = self.data_source.get_network()
+
+            speed = network.get(
+                "speed",
+                {},
+            )
 
         total_upload = sum(
             item.get(
@@ -1689,10 +1721,10 @@ class MainWindow(QMainWindow):
         )
 
         self.network_status.setText(
-            "Upload: "
+            f"Upload: "
             f"{self.format_bytes(total_upload)}/s"
             " • "
-            "Download: "
+            f"Download: "
             f"{self.format_bytes(total_download)}/s"
         )
 
@@ -1706,37 +1738,43 @@ class MainWindow(QMainWindow):
         if len(
             self.network_history
         ) > 60:
-
-            self.network_history.pop(
-                0
-            )
+            self.network_history.pop(0)
 
         if (
             self.network_curve_upload
             is not None
-            and
-            self.network_curve_download
+            and self.network_curve_download
             is not None
         ):
 
-            upload_values = [
-                item[0]
-                for item
-                in self.network_history
-            ]
-
-            download_values = [
-                item[1]
-                for item
-                in self.network_history
-            ]
-
             self.network_curve_upload.setData(
-                upload_values
+                [
+                    x[0]
+                    for x in self.network_history
+                ]
             )
 
             self.network_curve_download.setData(
-                download_values
+                [
+                    x[1]
+                    for x in self.network_history
+                ]
+            )
+
+    # =========================================================
+    # CONEXÕES DE REDE
+    # =========================================================
+
+    def update_network_connections_page(self):
+        try:
+
+            self.network_connections_page.refresh_connections()
+
+        except Exception as error:
+
+            print(
+                "Erro ao atualizar conexões de rede:",
+                error,
             )
 
     # =========================================================
@@ -1744,7 +1782,6 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def create_process_page(self):
-
         page = QWidget()
 
         layout = QVBoxLayout(
@@ -1760,9 +1797,7 @@ class MainWindow(QMainWindow):
 
         controls = QHBoxLayout()
 
-        self.process_search = (
-            QLineEdit()
-        )
+        self.process_search = QLineEdit()
 
         self.process_search.setPlaceholderText(
             "Pesquisar processo..."
@@ -1780,6 +1815,16 @@ class MainWindow(QMainWindow):
             self.force_refresh_processes
         )
 
+        self.terminate_process_button = (
+            QPushButton(
+                "Finalizar processo"
+            )
+        )
+
+        self.terminate_process_button.clicked.connect(
+            self.terminate_selected_process
+        )
+
         controls.addWidget(
             self.process_search
         )
@@ -1788,13 +1833,15 @@ class MainWindow(QMainWindow):
             refresh_button
         )
 
+        controls.addWidget(
+            self.terminate_process_button
+        )
+
         layout.addLayout(
             controls
         )
 
-        self.process_table = (
-            QTableWidget()
-        )
+        self.process_table = QTableWidget()
 
         self.process_table.setColumnCount(
             7
@@ -1820,8 +1867,48 @@ class MainWindow(QMainWindow):
             QTableWidget.SelectionBehavior.SelectRows
         )
 
+        self.process_table.setSelectionMode(
+            QTableWidget.SelectionMode.SingleSelection
+        )
+
+        self.process_table.setSortingEnabled(
+            True
+        )
+
+        self.process_table.itemSelectionChanged.connect(
+            self.update_process_details
+        )
+
+        self.process_table.horizontalHeader().sortIndicatorChanged.connect(
+            self.process_sort_changed
+        )
+
         layout.addWidget(
             self.process_table
+        )
+
+        details_title = QLabel(
+            "Detalhes do processo"
+        )
+
+        details_title.setStyleSheet(
+            "font-size: 17px; font-weight: bold;"
+        )
+
+        layout.addWidget(
+            details_title
+        )
+
+        self.process_details = QLabel(
+            "Selecione um processo para ver os detalhes."
+        )
+
+        self.process_details.setWordWrap(
+            True
+        )
+
+        layout.addWidget(
+            self.process_details
         )
 
         self.process_status = QLabel(
@@ -1835,125 +1922,702 @@ class MainWindow(QMainWindow):
         return page
 
     def update_process_page(self):
-
-        processes = (
-            get_process_data()
-        )
-
         self.processes_data = (
-            processes
+            self.data_source.get_processes()
         )
 
         self.populate_process_table(
-            processes
+            self.processes_data
         )
 
-    def force_refresh_processes(
-        self,
-    ):
-
-        processes = (
-            monitor.force_refresh_processes()
-        )
-
+    def force_refresh_processes(self):
         self.processes_data = (
-            processes
+            self.data_source.get_processes()
         )
+
+        self.process_table_signature = None
 
         self.populate_process_table(
-            processes
+            self.processes_data,
+            force_rebuild=True,
         )
 
-    def populate_process_table(
+    def get_filtered_processes(
         self,
         processes,
     ):
-
         search = (
-            self.process_search
-            .text()
+            self.process_search.text()
             .strip()
             .lower()
         )
 
-        if search:
+        if not search:
+            return list(processes)
 
-            processes = [
-                process
-                for process
-                in processes
-                if search
+        return [
+            process
+            for process in processes
+            if (
+                search
                 in str(
                     process.get(
                         "name"
                     )
                     or ""
                 ).lower()
-            ]
+            )
+            or (
+                search
+                in str(
+                    process.get(
+                        "pid"
+                    )
+                    or ""
+                ).lower()
+            )
+            or (
+                search
+                in str(
+                    process.get(
+                        "username"
+                    )
+                    or ""
+                ).lower()
+            )
+        ]
+
+    def get_process_signature(
+        self,
+        processes,
+    ):
+        return tuple(
+            sorted(
+                int(
+                    process.get(
+                        "pid"
+                    )
+                )
+                for process in processes
+                if process.get(
+                    "pid"
+                )
+                is not None
+            )
+        )
+
+    def populate_process_table(
+        self,
+        processes,
+        force_rebuild=False,
+    ):
+        visible = (
+            self.get_filtered_processes(
+                processes
+            )
+        )
+
+        signature = (
+            self.get_process_signature(
+                visible
+            )
+        )
+
+        search = (
+            self.process_search.text()
+            .strip()
+            .lower()
+        )
+
+        search_changed = (
+            search
+            != self.process_search_text
+        )
+
+        self.process_search_text = search
+
+        rebuild = (
+            force_rebuild
+            or search_changed
+            or signature
+            != self.process_table_signature
+            or self.process_table.rowCount()
+            != len(visible)
+        )
+
+        selected_pid = (
+            self.get_selected_process_pid()
+        )
+
+        if not rebuild:
+
+            self.update_process_rows(
+                visible
+            )
+
+            if selected_pid is not None:
+                self.select_process_by_pid(
+                    selected_pid
+                )
+
+            self.process_status.setText(
+                f"{len(visible)} processos encontrados."
+            )
+
+            return
+
+        self.process_table.setSortingEnabled(
+            False
+        )
 
         self.process_table.setRowCount(
-            len(processes)
+            len(visible)
         )
 
         for row, process in enumerate(
-            processes
+            visible
+        ):
+            self.set_process_row(
+                row,
+                process,
+            )
+
+        self.process_table_signature = (
+            signature
+        )
+
+        self.process_table.resizeColumnsToContents()
+
+        self.process_table.setSortingEnabled(
+            True
+        )
+
+        if (
+            self.process_sort_column
+            is not None
+        ):
+            self.process_table.sortItems(
+                self.process_sort_column,
+                self.process_sort_order,
+            )
+
+        if selected_pid is not None:
+            self.select_process_by_pid(
+                selected_pid
+            )
+
+        self.process_status.setText(
+            f"{len(visible)} processos encontrados."
+        )
+
+        self.update_process_details()
+
+    def set_process_row(
+        self,
+        row,
+        process,
+    ):
+        values = [
+            process.get(
+                "pid",
+                "-",
+            ),
+            process.get(
+                "name"
+            )
+            or "-",
+            process.get(
+                "username"
+            )
+            or "-",
+            f"{process.get('cpu_percent', 0):.2f}",
+            f"{process.get('memory_percent', 0):.2f}",
+            process.get(
+                "status"
+            )
+            or "-",
+            process.get(
+                "num_threads"
+            )
+            or 0,
+        ]
+
+        for column, value in enumerate(
+            values
         ):
 
-            values = [
-                process.get(
-                    "pid",
-                    "-",
-                ),
-                process.get(
-                    "name"
-                ) or "-",
-                process.get(
-                    "username"
-                ) or "-",
-                f"{process.get('cpu_percent', 0):.2f}",
-                f"{process.get('memory_percent', 0):.2f}",
-                process.get(
-                    "status"
-                ) or "-",
-                process.get(
-                    "num_threads"
-                ) or 0,
-            ]
+            item = QTableWidgetItem(
+                str(value)
+            )
 
-            for column, value in enumerate(
-                values
-            ):
-
-                self.process_table.setItem(
-                    row,
-                    column,
-                    QTableWidgetItem(
-                        str(value)
+            if column == 0:
+                item.setData(
+                    Qt.ItemDataRole.UserRole,
+                    process.get(
+                        "pid"
                     ),
                 )
 
-        self.process_status.setText(
-            f"{len(processes)} "
-            "processos encontrados."
+            if column in (
+                3,
+                4,
+            ):
+                try:
+
+                    numeric = float(
+                        value
+                    )
+
+                    item.setData(
+                        Qt.ItemDataRole.UserRole + 1,
+                        numeric,
+                    )
+
+                    if numeric >= 80:
+
+                        font = item.font()
+
+                        font.setBold(
+                            True
+                        )
+
+                        item.setFont(
+                            font
+                        )
+
+                        item.setToolTip(
+                            "Uso elevado."
+                        )
+
+                    elif numeric >= 50:
+
+                        item.setToolTip(
+                            "Uso acima do normal."
+                        )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    pass
+
+            self.process_table.setItem(
+                row,
+                column,
+                item,
+            )
+
+    def update_process_rows(
+        self,
+        processes,
+    ):
+        self.process_table.setSortingEnabled(
+            False
         )
+
+        row_by_pid = {}
+
+        for row in range(
+            self.process_table.rowCount()
+        ):
+
+            item = self.process_table.item(
+                row,
+                0,
+            )
+
+            if (
+                item is not None
+                and item.data(
+                    Qt.ItemDataRole.UserRole
+                )
+                is not None
+            ):
+
+                row_by_pid[
+                    int(
+                        item.data(
+                            Qt.ItemDataRole.UserRole
+                        )
+                    )
+                ] = row
+
+        for process in processes:
+
+            pid = process.get(
+                "pid"
+            )
+
+            if (
+                pid is not None
+                and int(pid)
+                in row_by_pid
+            ):
+
+                self.set_process_row(
+                    row_by_pid[
+                        int(pid)
+                    ],
+                    process,
+                )
+
+        self.process_table.setSortingEnabled(
+            True
+        )
+
+        if (
+            self.process_sort_column
+            is not None
+        ):
+
+            self.process_table.sortItems(
+                self.process_sort_column,
+                self.process_sort_order,
+            )
+
+    def process_sort_changed(
+        self,
+        column,
+        order,
+    ):
+        self.process_sort_column = column
+        self.process_sort_order = order
+
+    def select_process_by_pid(
+        self,
+        pid,
+    ):
+        if pid is None:
+            return
+
+        self.process_table.blockSignals(
+            True
+        )
+
+        try:
+
+            for row in range(
+                self.process_table.rowCount()
+            ):
+
+                item = self.process_table.item(
+                    row,
+                    0,
+                )
+
+                if (
+                    item is not None
+                    and item.data(
+                        Qt.ItemDataRole.UserRole
+                    )
+                    == pid
+                ):
+
+                    self.process_table.selectRow(
+                        row
+                    )
+
+                    self.process_table.setCurrentCell(
+                        row,
+                        0,
+                    )
+
+                    return
+
+        finally:
+
+            self.process_table.blockSignals(
+                False
+            )
+
+        self.update_process_details()
 
     def filter_processes(
         self,
-        text,
+        _text,
     ):
+        self.process_table_signature = None
 
         self.populate_process_table(
-            self.processes_data
+            self.processes_data,
+            force_rebuild=True,
         )
+
+    def get_selected_process_pid(
+        self,
+    ):
+        row = (
+            self.process_table.currentRow()
+        )
+
+        if row < 0:
+            return None
+
+        item = self.process_table.item(
+            row,
+            0,
+        )
+
+        if item is None:
+            return None
+
+        pid = item.data(
+            Qt.ItemDataRole.UserRole
+        )
+
+        try:
+
+            return (
+                int(pid)
+                if pid is not None
+                else None
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return None
+
+    def update_process_details(self):
+        pid = (
+            self.get_selected_process_pid()
+        )
+
+        self.selected_process_pid = pid
+
+        if pid is None:
+
+            self.process_details.setText(
+                "Selecione um processo "
+                "para ver os detalhes."
+            )
+
+            return
+
+        try:
+
+            process = self.data_source.get_process(
+                pid
+            )
+
+        except Exception as error:
+
+            self.process_details.setText(
+                "Erro ao consultar o processo:\n"
+                f"{error}"
+            )
+
+            return
+
+        if not process:
+
+            self.process_details.setText(
+                "O processo não está mais em execução."
+            )
+
+            return
+
+        details = [
+            f"PID: {process.get('pid', '-')}",
+            f"Nome: {process.get('name') or '-'}",
+            f"Usuário: {process.get('username') or '-'}",
+            f"Status: {process.get('status') or '-'}",
+            f"CPU: {process.get('cpu_percent', 0):.2f}%",
+            f"Memória: {process.get('memory_percent', 0):.2f}%",
+            f"Memória física: {process.get('memory_rss_mb', 0):.2f} MB",
+            f"Threads: {process.get('num_threads') or 0}",
+            f"Executável: {process.get('exe') or '-'}",
+        ]
+
+        try:
+
+            proc = psutil.Process(
+                pid
+            )
+
+            details.insert(
+                3,
+                f"PID pai: {proc.ppid()}",
+            )
+
+            try:
+
+                details.append(
+                    f"Criado em: "
+                    f"{proc.create_time():.0f}"
+                )
+
+            except (
+                psutil.AccessDenied,
+                psutil.NoSuchProcess,
+            ):
+                pass
+
+        except (
+            psutil.AccessDenied,
+            psutil.NoSuchProcess,
+            psutil.ZombieProcess,
+        ):
+            pass
+
+        self.process_details.setText(
+            "\n".join(
+                details
+            )
+        )
+
+    def terminate_selected_process(
+        self,
+    ):
+        pid = (
+            self.get_selected_process_pid()
+        )
+
+        if pid is None:
+
+            QMessageBox.warning(
+                self,
+                "Nenhum processo selecionado",
+                "Selecione um processo antes "
+                "de tentar finalizá-lo.",
+            )
+
+            return
+
+        try:
+
+            process = self.data_source.get_process(
+                pid
+            )
+
+        except Exception as error:
+
+            QMessageBox.critical(
+                self,
+                "Erro",
+                "Não foi possível consultar "
+                "o processo.\n\n"
+                f"{error}",
+            )
+
+            return
+
+        if not process:
+
+            QMessageBox.warning(
+                self,
+                "Processo não encontrado",
+                "Esse processo pode ter sido encerrado.",
+            )
+
+            self.force_refresh_processes()
+
+            return
+
+        name = process.get(
+            "name"
+        ) or "Desconhecido"
+
+        protected = {
+            "system",
+            "registry",
+            "smss.exe",
+            "csrss.exe",
+            "wininit.exe",
+            "winlogon.exe",
+            "services.exe",
+            "lsass.exe",
+            "svchost.exe",
+        }
+
+        if name.lower() in protected:
+
+            QMessageBox.warning(
+                self,
+                "Processo protegido",
+                "O SysView não permite finalizar "
+                "diretamente este processo porque "
+                "ele é crítico para o Windows.\n\n"
+                f"Processo: {name}\n"
+                f"PID: {pid}",
+            )
+
+            return
+
+        if QMessageBox.question(
+            self,
+            "Finalizar processo",
+            "ATENÇÃO!\n\n"
+            "Você está prestes a finalizar "
+            "um processo do Windows.\n\n"
+            f"Processo: {name}\n"
+            f"PID: {pid}\n\n"
+            "Isso pode fazer o programa perder "
+            "dados não salvos.\n\n"
+            "Deseja continuar?",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+
+            return
+
+        try:
+
+            if not self.control_source.terminate_process(
+                pid
+            ):
+
+                QMessageBox.warning(
+                    self,
+                    "Processo não encontrado",
+                    "O processo já pode ter sido encerrado.",
+                )
+
+                self.force_refresh_processes()
+
+                return
+
+            QMessageBox.information(
+                self,
+                "Processo finalizado",
+                f"O processo '{name}' "
+                "recebeu a solicitação de encerramento.",
+            )
+
+            self.force_refresh_processes()
+
+        except PermissionError as error:
+
+            QMessageBox.critical(
+                self,
+                "Acesso negado",
+                "O Windows não permitiu "
+                "finalizar o processo.\n\n"
+                "Isso normalmente acontece com "
+                "processos protegidos ou que "
+                "pertencem a outro nível de privilégio.\n\n"
+                f"{error}",
+            )
+
+        except Exception as error:
+
+            QMessageBox.critical(
+                self,
+                "Erro",
+                "Não foi possível finalizar "
+                "o processo.\n\n"
+                f"{error}",
+            )
 
     # =========================================================
     # SERVIÇOS
     # =========================================================
 
     def update_services_page(self):
-
         services = (
-            get_service_data()
+            self.data_source.get_services()
         )
 
         self.services_page.services = (
@@ -1963,14 +2627,13 @@ class MainWindow(QMainWindow):
         self.services_page.update_services_table()
 
     # =========================================================
-    # FORMATAÇÃO
+    # UTILITÁRIOS
     # =========================================================
 
     @staticmethod
     def format_bytes(
         value,
     ):
-
         units = [
             "B",
             "KB",
@@ -1979,14 +2642,11 @@ class MainWindow(QMainWindow):
             "TB",
         ]
 
-        size = float(
-            value
-        )
+        size = float(value)
 
         for unit in units:
 
             if size < 1024:
-
                 return (
                     f"{size:.2f} {unit}"
                 )
@@ -1998,26 +2658,22 @@ class MainWindow(QMainWindow):
         )
 
     # =========================================================
-    # FECHAMENTO
+    # ENCERRAMENTO
     # =========================================================
 
     def closeEvent(
         self,
         event,
     ):
-
         self.timer.stop()
 
         event.accept()
 
 
 def run_app():
-    """Inicia a aplicação SysView."""
-
     app = QApplication.instance()
 
     if app is None:
-
         app = QApplication([])
 
     window = MainWindow()
@@ -2028,5 +2684,5 @@ def run_app():
 
 
 if __name__ == "__main__":
-
     run_app()
+

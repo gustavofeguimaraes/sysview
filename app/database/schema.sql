@@ -1,0 +1,19 @@
+USE sysview;
+
+CREATE TABLE IF NOT EXISTS devices (
+    device_id VARCHAR(100) PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    device_type VARCHAR(50) NOT NULL,
+    platform VARCHAR(50) NOT NULL,
+    connection_type VARCHAR(50) NOT NULL,
+    address VARCHAR(255),
+    port INT,
+    online BOOLEAN NOT NULL DEFAULT FALSE,
+    metadata JSON,
+    last_seen DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP
+);
+
+SHOW TABLES;

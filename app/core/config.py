@@ -124,3 +124,18 @@ def validate_monitor_intervals(
 MONITOR_INTERVALS = validate_monitor_intervals(
     MONITOR_INTERVALS
 )
+
+
+# ==============================================================
+# BANCO DE DADOS - MYSQL
+# ==============================================================
+
+import os
+
+DB_HOST = os.getenv("SYSVIEW_DB_HOST", "127.0.0.1")
+DB_PORT = int(os.getenv("SYSVIEW_DB_PORT", "3306"))
+DB_NAME = os.getenv("SYSVIEW_DB_NAME", "sysview")
+DB_USER = os.getenv("SYSVIEW_DB_USER", "sysview_app")
+DB_PASSWORD = os.getenv("SYSVIEW_DB_PASSWORD", "")
+DB_CONNECT_TIMEOUT = 5
+

@@ -52,6 +52,9 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("SysView")
         self.resize(1250, 800)
+        self.setMinimumSize(1000, 650)
+        self.setObjectName("sysviewMainWindow")
+        self.apply_theme()
 
         # =====================================================
         # DISPOSITIVO ATUAL
@@ -115,6 +118,187 @@ class MainWindow(QMainWindow):
         self.setup_ui()
         self.setup_timer()
 
+    def apply_theme(self):
+        """Tema global: mantém a lógica das páginas e padroniza seus widgets."""
+        self.setStyleSheet("""
+            QMainWindow#sysviewMainWindow, QWidget#sysviewContent,
+            QStackedWidget {
+                background-color: #0B1220;
+                color: #E2E8F0;
+            }
+            QWidget {
+                color: #E2E8F0;
+                font-family: 'Segoe UI';
+                font-size: 12px;
+            }
+            QFrame#sysviewSidebar {
+                background-color: #111B2B;
+                border-right: 1px solid #26354B;
+            }
+            QLabel#sysviewBrand {
+                font-size: 23px;
+                font-weight: 800;
+                color: #F8FAFC;
+                padding-left: 8px;
+            }
+            QLabel#sysviewBrandSubtitle, QLabel#sysviewNavigationTitle,
+            QLabel#sysviewDeviceCaption, QLabel#sysviewFooter {
+                color: #8192AA;
+                font-size: 10px;
+                font-weight: 600;
+                padding-left: 8px;
+            }
+            QListWidget#sysviewNavigation {
+                background: transparent;
+                border: none;
+                outline: none;
+                padding: 0;
+            }
+            QListWidget#sysviewNavigation::item {
+                color: #AEBED3;
+                min-height: 38px;
+                padding: 4px 12px;
+                border-radius: 8px;
+                margin-bottom: 2px;
+            }
+            QListWidget#sysviewNavigation::item:hover {
+                background-color: #1C2B42;
+                color: #FFFFFF;
+            }
+            QListWidget#sysviewNavigation::item:selected {
+                background-color: #1D3B5C;
+                color: #7DD3FC;
+                border-left: 3px solid #38BDF8;
+                font-weight: 700;
+            }
+            QFrame#sysviewDeviceCard {
+                background-color: #19273B;
+                border: 1px solid #2B405A;
+                border-radius: 10px;
+            }
+            QLabel#sysviewDeviceStatus, QLabel#sysviewHeaderStatus {
+                color: #34D399;
+                font-weight: 700;
+                font-size: 11px;
+            }
+            QFrame#sysviewHeader {
+                background-color: #101A29;
+                border-bottom: 1px solid #26354B;
+            }
+            QLabel#sysviewHeaderTitle {
+                color: #F8FAFC;
+                font-size: 17px;
+                font-weight: 700;
+            }
+            QFrame#sysviewPanel, QGroupBox {
+                background-color: #151F30;
+                border: 1px solid #26354B;
+                border-radius: 10px;
+            }
+            QGroupBox {
+                margin-top: 12px;
+                padding-top: 14px;
+                font-weight: 600;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 6px;
+                color: #E2E8F0;
+            }
+            QTableWidget {
+                background-color: #151F30;
+                alternate-background-color: #19263A;
+                color: #DCE7F5;
+                gridline-color: #26354B;
+                border: 1px solid #26354B;
+                border-radius: 8px;
+                selection-background-color: #24537A;
+                selection-color: #FFFFFF;
+            }
+            QHeaderView::section {
+                background-color: #1D2D43;
+                color: #CBD5E1;
+                border: none;
+                border-right: 1px solid #314259;
+                border-bottom: 1px solid #314259;
+                padding: 8px;
+                font-weight: 600;
+            }
+            QTableCornerButton::section {
+                background-color: #1D2D43;
+                border: none;
+            }
+            QLineEdit, QComboBox {
+                background-color: #172338;
+                color: #F1F5F9;
+                border: 1px solid #30435D;
+                border-radius: 7px;
+                padding: 7px 10px;
+                min-height: 19px;
+                selection-background-color: #2563A0;
+            }
+            QLineEdit:focus, QComboBox:focus {
+                border: 1px solid #38BDF8;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #172338;
+                color: #F1F5F9;
+                selection-background-color: #24537A;
+            }
+            QPushButton {
+                background-color: #243750;
+                color: #E2E8F0;
+                border: 1px solid #344B68;
+                border-radius: 7px;
+                padding: 8px 13px;
+                font-weight: 600;
+                min-height: 20px;
+            }
+            QPushButton:hover {
+                background-color: #315276;
+                border-color: #38BDF8;
+            }
+            QPushButton:pressed { background-color: #1B344E; }
+            QPushButton:disabled {
+                background-color: #192435;
+                color: #65768B;
+                border-color: #26354B;
+            }
+            QPushButton#dangerButton {
+                background-color: #5B2835;
+                border-color: #934354;
+                color: #FFE4E6;
+            }
+            QPushButton#dangerButton:hover {
+                background-color: #7A3042;
+            }
+            QProgressBar {
+                background-color: #26354B;
+                border: none;
+                border-radius: 5px;
+                min-height: 9px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #38BDF8;
+                border-radius: 5px;
+            }
+            QScrollBar:vertical {
+                background: #111B2B;
+                width: 10px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #344861;
+                border-radius: 5px;
+                min-height: 24px;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical { height: 0; }
+            QMessageBox { background-color: #151F30; }
+        """)
+
     # =========================================================
     # INTERFACE PRINCIPAL
     # =========================================================
@@ -140,7 +324,10 @@ class MainWindow(QMainWindow):
         # MENU
         # -----------------------------------------------------
 
-        self.menu.setFixedWidth(210)
+        self.menu.setFixedWidth(218)
+        self.menu.setObjectName("sysviewNavigation")
+        self.menu.setSpacing(4)
+        self.menu.setFrameShape(QFrame.Shape.NoFrame)
 
         self.menu.addItems(
             [
@@ -160,13 +347,71 @@ class MainWindow(QMainWindow):
             self.change_page
         )
 
-        main_layout.addWidget(
-            self.menu
-        )
+        # Menu lateral com identidade visual própria.
+        sidebar = QFrame()
+        sidebar.setObjectName("sysviewSidebar")
+        sidebar.setFixedWidth(242)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(12, 20, 12, 14)
+        sidebar_layout.setSpacing(12)
 
-        main_layout.addWidget(
-            self.pages
-        )
+        brand = QLabel("◈  SYSVIEW")
+        brand.setObjectName("sysviewBrand")
+        sidebar_layout.addWidget(brand)
+
+        brand_subtitle = QLabel("CENTRAL DE MONITORAMENTO")
+        brand_subtitle.setObjectName("sysviewBrandSubtitle")
+        sidebar_layout.addWidget(brand_subtitle)
+
+        navigation_label = QLabel("NAVEGAÇÃO")
+        navigation_label.setObjectName("sysviewNavigationTitle")
+        sidebar_layout.addSpacing(18)
+        sidebar_layout.addWidget(navigation_label)
+        sidebar_layout.addWidget(self.menu, 1)
+
+        device_card = QFrame()
+        device_card.setObjectName("sysviewDeviceCard")
+        device_layout = QVBoxLayout(device_card)
+        device_layout.setContentsMargins(12, 12, 12, 12)
+        device_layout.setSpacing(5)
+        device_label = QLabel("DISPOSITIVO ATUAL")
+        device_label.setObjectName("sysviewDeviceCaption")
+        self.device_status_label = QLabel("●  Computador local")
+        self.device_status_label.setObjectName("sysviewDeviceStatus")
+        device_layout.addWidget(device_label)
+        device_layout.addWidget(self.device_status_label)
+        sidebar_layout.addWidget(device_card)
+
+        footer = QLabel("SysView  •  Monitoramento")
+        footer.setObjectName("sysviewFooter")
+        sidebar_layout.addWidget(footer)
+
+        main_layout.addWidget(sidebar)
+
+        # Cabeçalho global para todas as páginas.
+        content = QWidget()
+        content.setObjectName("sysviewContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("sysviewHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(24, 12, 24, 12)
+
+        self.header_page_label = QLabel("Dashboard")
+        self.header_page_label.setObjectName("sysviewHeaderTitle")
+        header_layout.addWidget(self.header_page_label)
+        header_layout.addStretch()
+
+        header_status = QLabel("●  MONITORAMENTO LOCAL")
+        header_status.setObjectName("sysviewHeaderStatus")
+        header_layout.addWidget(header_status)
+
+        content_layout.addWidget(header)
+        content_layout.addWidget(self.pages, 1)
+        main_layout.addWidget(content, 1)
 
         # -----------------------------------------------------
         # DASHBOARD
@@ -250,9 +495,17 @@ class MainWindow(QMainWindow):
         self,
         index,
     ):
+        if index < 0 or index >= self.pages.count():
+            return
+
         self.pages.setCurrentIndex(
             index
         )
+
+        if hasattr(self, "header_page_label"):
+            item = self.menu.item(index)
+            if item is not None:
+                self.header_page_label.setText(item.text())
 
         QTimer.singleShot(
             0,
@@ -348,6 +601,7 @@ class MainWindow(QMainWindow):
         frame.setFrameShape(
             QFrame.Shape.StyledPanel
         )
+        frame.setObjectName("sysviewPanel")
 
         layout = QVBoxLayout(
             frame
@@ -412,6 +666,7 @@ class MainWindow(QMainWindow):
         actions_box.setFrameShape(
             QFrame.Shape.StyledPanel
         )
+        actions_box.setObjectName("sysviewPanel")
 
         actions_layout = QVBoxLayout(
             actions_box
@@ -459,9 +714,13 @@ class MainWindow(QMainWindow):
             self.lock_computer_action
         )
 
+        self.setObjectName("dangerButton")
+
         self.restart_computer_button.clicked.connect(
             self.restart_computer_action
         )
+
+        self.setObjectName("dangerButton")
 
         self.shutdown_computer_button.clicked.connect(
             self.shutdown_computer_action
@@ -501,6 +760,7 @@ class MainWindow(QMainWindow):
         identification_box.setFrameShape(
             QFrame.Shape.StyledPanel
         )
+        identification_box.setObjectName("sysviewPanel")
 
         identification_layout = QGridLayout(
             identification_box
@@ -563,6 +823,7 @@ class MainWindow(QMainWindow):
         hardware_box.setFrameShape(
             QFrame.Shape.StyledPanel
         )
+        hardware_box.setObjectName("sysviewPanel")
 
         hardware_layout = QGridLayout(
             hardware_box
@@ -646,6 +907,7 @@ class MainWindow(QMainWindow):
         system_box.setFrameShape(
             QFrame.Shape.StyledPanel
         )
+        system_box.setObjectName("sysviewPanel")
 
         system_layout = QGridLayout(
             system_box
@@ -1474,6 +1736,7 @@ class MainWindow(QMainWindow):
         upload_box.setFrameShape(
             QFrame.Shape.StyledPanel
         )
+        upload_box.setObjectName("sysviewPanel")
 
         upload_layout = QVBoxLayout(
             upload_box
@@ -1500,6 +1763,7 @@ class MainWindow(QMainWindow):
         download_box.setFrameShape(
             QFrame.Shape.StyledPanel
         )
+        download_box.setObjectName("sysviewPanel")
 
         download_layout = QVBoxLayout(
             download_box
@@ -1560,9 +1824,10 @@ class MainWindow(QMainWindow):
 
             self.network_plot = pg.PlotWidget()
 
-            self.network_plot.setBackground(
-                None
-            )
+            self.network_plot.setBackground("#151F30")
+            self.network_plot.setTitle("Tráfego de rede em tempo real", color="#E2E8F0", size="12pt")
+            self.network_plot.getAxis("left").setTextPen("#94A3B8")
+            self.network_plot.getAxis("bottom").setTextPen("#94A3B8")
 
             self.network_plot.setTitle(
                 "Tráfego de rede em tempo real",
@@ -1589,16 +1854,12 @@ class MainWindow(QMainWindow):
                 260
             )
 
-            self.network_curve_upload = (
-                self.network_plot.plot(
-                    name="Upload"
-                )
+            self.network_curve_upload = self.network_plot.plot(
+                name="Upload", pen=pg.mkPen("#38BDF8", width=2)
             )
 
-            self.network_curve_download = (
-                self.network_plot.plot(
-                    name="Download"
-                )
+            self.network_curve_download = self.network_plot.plot(
+                name="Download", pen=pg.mkPen("#34D399", width=2)
             )
 
             layout.addWidget(
@@ -1820,6 +2081,8 @@ class MainWindow(QMainWindow):
                 "Finalizar processo"
             )
         )
+
+        self.setObjectName("dangerButton")
 
         self.terminate_process_button.clicked.connect(
             self.terminate_selected_process

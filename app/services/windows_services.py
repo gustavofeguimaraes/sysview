@@ -1,180 +1,131 @@
+
+import logging
 import psutil
+
+logger = logging.getLogger(__name__)
+
+SERVICE_ERRORS = (
+    psutil.NoSuchProcess,
+    psutil.AccessDenied,
+    psutil.ZombieProcess,
+    PermissionError,
+    FileNotFoundError,
+    OSError,
+)
+
+
+def _read_service_field(service, field, default=None):
+    """Consulta um atributo sem interromper a listagem."""
+    try:
+        return getattr(service, field)()
+    except SERVICE_ERRORS as error:
+        logger.debug(
+            "Não foi possível consultar %s do serviço %s: %s",
+            field,
+            getattr(service, "_name", "desconhecido"),
+            error,
+        )
+        return default
 
 
 def get_windows_services() -> list[dict]:
-    """Retorna os serviços do Windows."""
+    """Lista os serviços acessíveis do Windows."""
 
     services = []
 
-    for service in psutil.win_service_iter():
+    try:
+        iterator = psutil.win_service_iter()
 
-        try:
-            name = service.name()
-
+        for service in iterator:
             try:
-                display_name = service.display_name()
+                name = service.name()
 
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                FileNotFoundError,
-            ):
-                display_name = name
-
-            try:
-                status = service.status()
-
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                FileNotFoundError,
-            ):
-                status = "unknown"
-
-            try:
-                start_type = service.start_type()
-
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                FileNotFoundError,
-            ):
-                start_type = "unknown"
-
-            try:
-                pid = service.pid()
-
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                FileNotFoundError,
-            ):
-                pid = None
-
-            try:
-                username = service.username()
-
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                FileNotFoundError,
-            ):
-                username = None
-
-            try:
-                binpath = service.binpath()
-
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                FileNotFoundError,
-            ):
-                binpath = None
-
-            try:
-                description = service.description()
-
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                FileNotFoundError,
-            ):
-                description = None
-
-            services.append(
-                {
+                services.append({
                     "name": name,
-                    "display_name": display_name,
-                    "status": status,
-                    "start_type": start_type,
-                    "pid": pid,
-                    "username": username,
-                    "binpath": binpath,
-                    "description": description,
-                }
-            )
+                    "display_name": _read_service_field(
+                        service, "display_name", name
+                    ),
+                    "status": _read_service_field(
+                        service, "status", "unknown"
+                    ),
+                    "start_type": _read_service_field(
+                        service, "start_type", "unknown"
+                    ),
+                    "pid": _read_service_field(
+                        service, "pid"
+                    ),
+                    "username": _read_service_field(
+                        service, "username"
+                    ),
+                    "binpath": _read_service_field(
+                        service, "binpath"
+                    ),
+                    "description": _read_service_field(
+                        service, "description"
+                    ),
+                })
 
-        except (
-            psutil.NoSuchProcess,
-            psutil.AccessDenied,
-            psutil.ZombieProcess,
-            FileNotFoundError,
-        ):
-            continue
+            except SERVICE_ERRORS as error:
+                logger.debug(
+                    "Serviço ignorado por erro de acesso: %s",
+                    error,
+                )
+                continue
+
+    except SERVICE_ERRORS as error:
+        logger.warning(
+            "Não foi possível concluir a listagem de serviços: %s",
+            error,
+        )
 
     services.sort(
-        key=lambda service: (
-            service["display_name"] or ""
+        key=lambda item: (
+            item["display_name"] or ""
         ).lower()
     )
 
     return services
 
 
-def get_service(
-    service_name: str,
-) -> dict | None:
-    """Retorna um serviço específico."""
+def get_service(service_name: str) -> dict | None:
+    """Retorna informações de um serviço específico."""
 
     try:
-        service = psutil.win_service_get(
-            service_name
-        )
-
+        service = psutil.win_service_get(service_name)
         return service.as_dict()
 
-    except (
-        psutil.NoSuchProcess,
-        psutil.AccessDenied,
-        psutil.ZombieProcess,
-        FileNotFoundError,
-    ):
+    except SERVICE_ERRORS as error:
+        logger.warning(
+            "Falha ao consultar serviço %s: %s",
+            service_name,
+            error,
+        )
         return None
 
 
-def start_service(
-    service_name: str,
-) -> bool:
+def start_service(service_name: str) -> bool:
     """Inicia um serviço do Windows."""
 
-    service = psutil.win_service_get(
-        service_name
-    )
-
+    service = psutil.win_service_get(service_name)
     service.start()
-
     return True
 
 
-def stop_service(
-    service_name: str,
-) -> bool:
+def stop_service(service_name: str) -> bool:
     """Para um serviço do Windows."""
 
-    service = psutil.win_service_get(
-        service_name
-    )
-
+    service = psutil.win_service_get(service_name)
     service.stop()
-
     return True
 
 
-def restart_service(
-    service_name: str,
-) -> bool:
+def restart_service(service_name: str) -> bool:
     """Reinicia um serviço do Windows."""
 
-    service = psutil.win_service_get(
-        service_name
-    )
+    service = psutil.win_service_get(service_name)
 
     service.stop()
-
-    service.wait(
-        timeout=10
-    )
-
+    service.wait(timeout=10)
     service.start()
 
     return True
