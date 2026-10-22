@@ -20,3 +20,17 @@ logs/*.log
 # Sistema operacional
 .DS_Store
 Thumbs.db
+
+# Credenciais e chaves
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Configurações privadas
+config/local/
+config/secrets.*
+
+# Banco de dados local
+*.db
+*.sqlite3
